@@ -1,0 +1,86 @@
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ingest
+  namespace: rag-platform
+  labels:
+    app: ingest
+spec:
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        app: ingest
+      annotations:
+        consul.hashicorp.com/connect-inject: "true"
+        consul.hashicorp.com/connect-service: "ingest"
+        consul.hashicorp.com/connect-service-upstreams: "qdrant:6333,ollama:11434"
+    spec:
+      restartPolicy: OnFailure
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+      - name: ingest
+        image: ingest:latest
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: QDRANT_URL
+          valueFrom:
+            secretKeyRef:
+              name: qdrant-credentials
+              key: url
+        - name: QDRANT_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: qdrant-credentials
+              key: api_key
+              optional: true
+        - name: OLLAMA_URL
+          valueFrom:
+            secretKeyRef:
+              name: ollama-credentials
+              key: url
+        - name: EMBED_MODEL
+          value: "nomic-embed-text"
+        - name: COLLECTION
+          value: "platform-docs"
+        - name: DOCS_PATH
+          value: "/docs"
+        volumeMounts:
+        - name: docs
+          mountPath: /docs
+          readOnly: true
+        resources:
+          requests:
+            memory: "1Gi"
+            cpu: "500m"
+          limits:
+            memory: "2Gi"
+            cpu: "1000m"
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: false
+      volumes:
+      - name: docs
+        configMap:
+          name: platform-docs
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: platform-docs
+  namespace: rag-platform
+data:
+  # Placeholder - will be populated with actual docs
+  # In production, use a git-sync sidecar or external storage
+  README.md: |
+    # Platform Documentation
+    
+    This ConfigMap will be populated with actual documentation files.
+    For the demo, we'll mount the docs directory from the host.

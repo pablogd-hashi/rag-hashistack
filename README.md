@@ -34,37 +34,110 @@ SPIFFE-issued X.509 certificates.
 
 ---
 
-## Prerequisites
+## Deployment Options
+
+This platform supports two deployment modes:
+
+1. **Docker Compose** (Local Development) - Quick start for testing
+2. **OpenShift** (Production-Ready) - Full platform with Vault VSO integration
+
+### Docker Compose Prerequisites
 
 | Tool             | Version |
 |------------------|---------|
 | Docker Desktop   | 4.x+    |
 | Docker Compose   | v2      |
-| Ollama           | 0.6+    |
-| GNU Make or Task | any     |
+| Task             | any     |
 
 > On Apple Silicon, both Ollama models run natively. The demo flow
 > completes in under 3 seconds once models are loaded.
+
+### OpenShift Prerequisites
+
+| Tool                  | Version | Purpose                          |
+|-----------------------|---------|----------------------------------|
+| OpenShift Local (CRC) | 2.x+    | Local OpenShift cluster          |
+| oc CLI                | 4.x+    | OpenShift command-line interface |
+| helm                  | 3.x+    | Vault Secrets Operator install   |
+| vault CLI             | 1.15+   | Vault configuration              |
+| Task                  | any     | Automation                       |
+
+**System Requirements for CRC:**
+- Memory: 20 GB RAM
+- CPU: 6 cores
+- Disk: 80 GB free space
+
+See [CRC Prerequisites](docs/configuration/crc-prerequisites.md) for detailed setup instructions.
 
 ---
 
 ## Quick Start
 
+### Option 1: Docker Compose (Local Development)
+
 ```bash
-# Clone the repo
+# Clone and setup
 git clone https://github.com/<you>/rag-hashicorp-platform.git
 cd rag-hashicorp-platform
 
-# One command does everything: pulls models, ingests sample docs, starts services
-task demo        # or: make demo
+# Run full demo (setup + ingest + start services)
+task demo:docker
+# or simply: task demo
 ```
 
-Once complete, open **http://localhost:8501** and ask:
+**Access services:**
+- UI: http://localhost:8501
+- Query API: http://localhost:8000
+- Qdrant: http://localhost:6333
 
+**Try asking:**
 > *Which runbook covers a leader election failure?*
 
-You should see a grounded answer with citations pointing to
-`runbooks/consul-leader-election.md`.
+**Useful commands:**
+```bash
+task status              # Check services
+task logs -- ui          # View logs
+task walkthrough         # Interactive demo
+task clean               # Stop everything
+```
+
+### Option 2: OpenShift (Production with Vault + Consul)
+
+```bash
+# Clone and setup
+git clone https://github.com/<you>/rag-hashicorp-platform.git
+cd rag-hashicorp-platform
+
+# Setup infrastructure (CRC + Vault + Consul + VSO)
+task setup:ocp
+
+# Run full demo
+task demo:ocp
+```
+
+**Access services:**
+- UI: https://ui-rag-platform.apps-crc.testing
+- Vault: http://localhost:8200 (token: root)
+- Consul UI: `oc port-forward -n consul svc/consul-ui 8500:80`
+
+**Useful commands:**
+```bash
+task status:ocp              # Check all services
+task logs:ocp -- query-service
+task clean:ocp               # Remove everything
+task stop:ocp                # Stop CRC
+```
+
+**Key Features:**
+- ✅ **Consul Connect Service Mesh** - mTLS between all services
+- ✅ **SPIFFE Identities** - Cryptographic service identities
+- ✅ **Vault Secrets Operator** - Dynamic secret management
+- ✅ **Automatic Secret Rotation** - 30s refresh with pod restart
+- ✅ **Service Intentions** - Fine-grained authorization policies
+- ✅ **Production-Ready Architecture** - StatefulSets, PVCs, health checks
+- ✅ **OpenShift Routes** - HTTPS ingress with TLS termination
+
+See [OpenShift Deployment Guide](docs/architecture/openshift-deployment.md) for details.
 
 ---
 
@@ -129,9 +202,70 @@ production monitoring.
 
 ---
 
-## Production: Vault and Consul
+## OpenShift Deployment with Vault VSO
 
-In production, plaintext environment variables are replaced by
+The platform includes a production-ready OpenShift deployment using Vault Secrets Operator (VSO) for dynamic secret management.
+
+### Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    OpenShift Cluster (CRC)                   │
+│                                                              │
+│  ┌──────────────┐    ┌──────────────────┐                  │
+│  │   Vault      │───▶│  VSO (Operator)  │                  │
+│  │  (Dev Mode)  │    │  Syncs Secrets   │                  │
+│  └──────────────┘    └──────────────────┘                  │
+│         │                      │                             │
+│         │                      ▼                             │
+│         │         ┌────────────────────────┐                │
+│         │         │  Kubernetes Secrets    │                │
+│         │         │  - qdrant-credentials  │                │
+│         │         │  - ollama-credentials  │                │
+│         │         └────────────────────────┘                │
+│         │                      │                             │
+│         ▼                      ▼                             │
+│  ┌──────────────────────────────────────────────┐          │
+│  │  RAG Platform Services                       │          │
+│  │  - Qdrant (StatefulSet + PVC)               │          │
+│  │  - Ollama (Deployment + PVC)                │          │
+│  │  - Query Service (Deployment)               │          │
+│  │  - UI (Deployment + Route)                  │          │
+│  │  - Ingest (Job)                             │          │
+│  └──────────────────────────────────────────────┘          │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Key Features:**
+- **Vault Secrets Operator:** Automatically syncs secrets from Vault to Kubernetes
+- **Kubernetes Auth:** Services authenticate to Vault using ServiceAccount tokens
+- **Secret Rotation:** Secrets refresh every 30s with automatic pod restarts
+- **OpenShift Routes:** HTTPS ingress with TLS termination
+- **Persistent Storage:** StatefulSets and PVCs for data persistence
+
+See [OpenShift Deployment Architecture](docs/architecture/openshift-deployment.md) for detailed information.
+
+### Quick Commands
+
+```bash
+# Check deployment status
+task status:ocp
+
+# View logs
+task logs:ocp -- query-service
+
+# Cleanup everything
+task clean:ocp
+
+# Stop CRC
+task stop:ocp
+```
+
+---
+
+## Production: Vault and Consul (Nomad)
+
+For Nomad-based deployments, plaintext environment variables are replaced by
 Vault-managed secrets and Consul-enforced mTLS.
 
 ### Vault Agent Credential Delivery
@@ -197,18 +331,40 @@ rag-hashicorp-platform/
 │   ├── ask.py
 │   ├── requirements.txt
 │   └── Dockerfile
-├── vault/               # Production credential delivery
+├── k8s/                 # OpenShift/Kubernetes manifests
+│   ├── base/            # Base deployments
+│   │   ├── qdrant-statefulset.yaml
+│   │   ├── ollama-deployment.yaml
+│   │   ├── query-service-deployment.yaml
+│   │   ├── ui-deployment.yaml
+│   │   └── ingest-job.yaml
+│   └── vault/           # Vault and VSO configuration
+│       ├── vault-dev.yaml
+│       ├── vault-connection.yaml
+│       ├── vault-auth.yaml
+│       ├── qdrant-secret.yaml
+│       └── ollama-secret.yaml
+├── vault/               # Production credential delivery (Nomad)
 │   ├── policy.hcl
 │   ├── agent.hcl
 │   ├── config.tpl
 │   └── setup.sh
+├── scripts/             # Automation scripts
+│   ├── configure-vault.sh  # Vault setup for OpenShift
+│   ├── ask.sh
+│   └── walkthrough.sh
 ├── docs/                # Document corpus
-│   ├── runbooks/        # Markdown runbooks
+│   ├── architecture/    # Architecture documentation
+│   │   └── openshift-deployment.md
+│   ├── configuration/   # Setup guides
+│   │   ├── crc-prerequisites.md
+│   │   └── vault-vso-integration.md
+│   ├── runbooks/        # Operational runbooks
 │   ├── policies/        # Vault HCL policies
 │   └── jobs/            # Nomad HCL job specs
-├── docker-compose.yml
-├── Taskfile.yml
-├── Makefile
+├── docker-compose.yml   # Docker Compose (local dev)
+├── Taskfile.yml         # Docker Compose automation
+├── Taskfile-openshift.yml  # OpenShift automation
 ├── .env.example
 └── .gitignore
 ```

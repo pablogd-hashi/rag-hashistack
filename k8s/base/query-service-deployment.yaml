@@ -1,0 +1,102 @@
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: query-service
+  namespace: rag-platform
+  labels:
+    app: query-service
+spec:
+  type: ClusterIP
+  ports:
+  - name: http
+    port: 8000
+    targetPort: 8000
+    protocol: TCP
+  selector:
+    app: query-service
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: query-service
+  namespace: rag-platform
+  labels:
+    app: query-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: query-service
+  template:
+    metadata:
+      labels:
+        app: query-service
+      annotations:
+        consul.hashicorp.com/connect-inject: "true"
+        consul.hashicorp.com/connect-service: "query-service"
+        consul.hashicorp.com/connect-service-port: "8000"
+        consul.hashicorp.com/connect-service-upstreams: "qdrant:6333,ollama:11434"
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+      - name: query-service
+        image: query-service:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - name: http
+          containerPort: 8000
+          protocol: TCP
+        env:
+        - name: QDRANT_URL
+          valueFrom:
+            secretKeyRef:
+              name: qdrant-credentials
+              key: url
+        - name: QDRANT_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: qdrant-credentials
+              key: api_key
+              optional: true
+        - name: OLLAMA_URL
+          valueFrom:
+            secretKeyRef:
+              name: ollama-credentials
+              key: url
+        - name: EMBED_MODEL
+          value: "nomic-embed-text"
+        - name: LLM_MODEL
+          value: "mistral"
+        - name: COLLECTION
+          value: "platform-docs"
+        - name: TOP_K
+          value: "5"
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 10
+          periodSeconds: 5
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: false

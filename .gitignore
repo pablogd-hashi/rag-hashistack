@@ -12,3 +12,7 @@ __pycache__/
 *.swo
 *~
 .DS_Store
+.bob
+.bob/*
+.plan
+.plans

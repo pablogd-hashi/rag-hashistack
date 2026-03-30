@@ -6,10 +6,8 @@ services:
       - "6334:6334"
     volumes:
       - qdrant_data:/qdrant/storage
-    environment:
-      QDRANT__SERVICE__API_KEY: "${QDRANT_API_KEY:-}"
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:6333/healthz"]
+      test: ["CMD-SHELL", "timeout 1 bash -c '</dev/tcp/localhost/6333' || exit 1"]
       interval: 5s
       timeout: 3s
       retries: 10
@@ -31,7 +29,6 @@ services:
     profiles: ["ingest"]
     environment:
       QDRANT_URL: "http://qdrant:6333"
-      QDRANT_API_KEY: "${QDRANT_API_KEY:-}"
       OLLAMA_URL: "http://ollama:11434"
       EMBED_MODEL: "nomic-embed-text"
       COLLECTION: "platform-docs"
@@ -50,7 +47,6 @@ services:
       - "8000:8000"
     environment:
       QDRANT_URL: "http://qdrant:6333"
-      QDRANT_API_KEY: "${QDRANT_API_KEY:-}"
       OLLAMA_URL: "http://ollama:11434"
       EMBED_MODEL: "nomic-embed-text"
       LLM_MODEL: "mistral"

@@ -1,0 +1,112 @@
+# Consul Helm values for OpenShift deployment
+# Enables Consul Connect service mesh with SPIFFE identities
+
+global:
+  name: consul
+  datacenter: dc1
+  
+  # Enable Consul Connect service mesh
+  connectInject:
+    enabled: true
+    default: true  # Automatically inject Connect sidecar
+    
+  # TLS configuration
+  tls:
+    enabled: true
+    enableAutoEncrypt: true
+    
+  # ACLs for security
+  acls:
+    manageSystemACLs: true
+    
+  # Metrics for observability
+  metrics:
+    enabled: true
+    enableAgentMetrics: true
+
+# Consul server configuration
+server:
+  replicas: 1  # Single replica for CRC
+  
+  # Storage for Consul data
+  storage: 10Gi
+  storageClass: null  # Use default storage class
+  
+  # Resources
+  resources:
+    requests:
+      memory: "512Mi"
+      cpu: "250m"
+    limits:
+      memory: "1Gi"
+      cpu: "500m"
+  
+  # Security context for OpenShift
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 100
+    fsGroup: 1000
+
+# Consul client configuration
+client:
+  enabled: true
+  
+  # Resources
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "100m"
+    limits:
+      memory: "512Mi"
+      cpu: "250m"
+  
+  # Security context for OpenShift
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 100
+    fsGroup: 1000
+
+# Consul Connect inject configuration
+connectInject:
+  enabled: true
+  
+  # Automatically inject sidecar for all pods in rag-platform namespace
+  default: false  # Opt-in per service
+  
+  # Resources for sidecar proxies
+  resources:
+    requests:
+      memory: "128Mi"
+      cpu: "50m"
+    limits:
+      memory: "256Mi"
+      cpu: "100m"
+  
+  # Enable metrics from Envoy proxies
+  metrics:
+    defaultEnabled: true
+    defaultEnableMerging: true
+
+# Consul UI
+ui:
+  enabled: true
+  service:
+    type: ClusterIP
+
+# Sync Kubernetes services to Consul catalog
+syncCatalog:
+  enabled: true
+  default: true
+  toConsul: true
+  toK8S: false
+  k8sPrefix: null
+  consulPrefix: null
+  
+  # Sync only services in rag-platform namespace
+  k8sAllowNamespaces: ["rag-platform"]
+  k8sDenyNamespaces: []
+
+# DNS configuration
+dns:
+  enabled: true
+  enableRedirection: true

@@ -2,13 +2,28 @@ version: "3"
 
 vars:
   COMPOSE: docker compose
+  VAULT_NAMESPACE: vault
+  RAG_NAMESPACE: rag-platform
+  VAULT_ADDR: http://localhost:8200
+  VAULT_TOKEN: root
 
 tasks:
-  setup:
-    desc: Start Ollama and pull required models
+  default:
+    desc: Show available tasks
     cmds:
+      - task --list
+
+  # ============================================================================
+  # Docker Compose Setup
+  # ============================================================================
+
+  setup:docker:
+    desc: Setup Docker environment (pull images, download models)
+    cmds:
+      - echo "Setting up Docker environment..."
+      - "{{.COMPOSE}} pull"
       - "{{.COMPOSE}} up -d ollama"
-      - echo "Waiting for Ollama to be ready..."
+      - echo "Waiting for Ollama..."
       - |
         for i in $(seq 1 30); do
           if docker compose exec ollama ollama list >/dev/null 2>&1; then break; fi
@@ -16,58 +31,268 @@ tasks:
         done
       - docker compose exec ollama ollama pull nomic-embed-text
       - docker compose exec ollama ollama pull mistral
-      - echo "✓ Models ready"
+      - echo "✓ Docker setup complete"
 
-  ingest:
-    desc: Run the ingest pipeline against ./docs
+  # ============================================================================
+  # OpenShift Setup
+  # ============================================================================
+
+  setup:ocp:
+    desc: Setup OpenShift (CRC) with Vault, Consul, and VSO
     cmds:
+      - task: _setup-crc
+      - task: _deploy-infrastructure
+
+  _setup-crc:
+    internal: true
+    cmds:
+      - echo "Configuring CRC..."
+      - crc config set memory 20480
+      - crc config set cpus 6
+      - crc config set enable-cluster-monitoring false
+      - echo "Starting CRC (5-10 minutes)..."
+      - crc start
+      - echo "✓ CRC started"
+      - eval $(crc oc-env)
+      - oc login -u developer -p developer https://api.crc.testing:6443
+      - oc new-project {{.VAULT_NAMESPACE}} 2>/dev/null || oc project {{.VAULT_NAMESPACE}}
+      - oc new-project {{.RAG_NAMESPACE}} 2>/dev/null || oc project {{.RAG_NAMESPACE}}
+
+  _deploy-infrastructure:
+    internal: true
+    cmds:
+      - echo "Deploying Vault..."
+      - oc project {{.VAULT_NAMESPACE}}
+      - oc apply -f k8s/vault/vault-dev.yaml
+      - oc wait --for=condition=ready pod -l app=vault -n {{.VAULT_NAMESPACE}} --timeout=120s
+      - |
+        pkill -f "port-forward.*vault" || true
+        sleep 2
+        oc port-forward -n {{.VAULT_NAMESPACE}} svc/vault 8200:8200 > /dev/null 2>&1 &
+        sleep 3
+      - export VAULT_ADDR={{.VAULT_ADDR}} VAULT_TOKEN={{.VAULT_TOKEN}} && ./scripts/configure-vault.sh
+      - echo "✓ Vault ready"
+      - echo "Deploying Consul..."
+      - |
+        helm repo add hashicorp https://helm.releases.hashicorp.com 2>/dev/null || true
+        helm repo update
+      - |
+        helm upgrade --install consul hashicorp/consul \
+          --namespace consul \
+          --create-namespace \
+          --values k8s/consul/consul-values.yaml \
+          --wait \
+          --timeout 5m
+      - oc wait --for=condition=ready pod -l app=consul -n consul --timeout=120s
+      - echo "✓ Consul ready"
+      - echo "Deploying VSO..."
+      - |
+        helm upgrade --install vault-secrets-operator hashicorp/vault-secrets-operator \
+          --namespace vault-secrets-operator-system \
+          --create-namespace \
+          --set defaultVaultConnection.enabled=true \
+          --set defaultVaultConnection.address=http://vault.{{.VAULT_NAMESPACE}}.svc.cluster.local:8200 \
+          --wait
+      - echo "✓ Infrastructure ready (Vault + Consul + VSO)"
+
+  # ============================================================================
+  # Demo Tasks
+  # ============================================================================
+
+  demo:docker:
+    desc: Run full Docker Compose demo
+    cmds:
+      - task: setup:docker
+      - echo "Running ingest..."
       - "{{.COMPOSE}} run --rm ingest"
-
-  up:
-    desc: Start qdrant, ollama, query-service, and UI
-    cmds:
-      - "{{.COMPOSE}} up -d qdrant ollama query-service ui"
+      - echo "Starting services..."
+      - "{{.COMPOSE}} up -d qdrant query-service ui"
+      - sleep 5
+      - echo ""
+      - echo "════════════════════════════════════════════════════════════"
+      - echo "✓ Docker demo running!"
+      - echo "════════════════════════════════════════════════════════════"
       - echo ""
       - echo "Services:"
-      - echo "  Qdrant     → http://localhost:6333"
+      - echo "  UI         → http://localhost:8501"
       - echo "  Query API  → http://localhost:8000"
-      - echo "  Streamlit  → http://localhost:8501"
+      - echo "  Qdrant     → http://localhost:6333"
+      - echo "  Ollama     → http://localhost:11434"
+      - echo ""
+      - echo "Features:"
+      - echo "  ✅ Local development"
+      - echo "  ✅ No authentication"
+      - echo "  ✅ Fast iteration"
+      - echo ""
+      - echo "Try - task walkthrough"
 
-  down:
-    desc: Stop all services
+  demo:ocp:
+    desc: Run full OpenShift demo (Vault + Consul + VSO + RAG)
     cmds:
-      - "{{.COMPOSE}} down"
+      - task: setup:ocp
+      - task: _deploy-rag
+      - echo ""
+      - echo "════════════════════════════════════════════════════════════"
+      - echo "✓ OpenShift demo complete!"
+      - echo "════════════════════════════════════════════════════════════"
+      - echo ""
+      - echo "Services:"
+      - |
+        UI_URL=$(oc get route ui -n {{.RAG_NAMESPACE}} -o jsonpath='{.spec.host}' 2>/dev/null || echo "not-exposed")
+        echo "  UI         → http://$UI_URL"
+        echo "  Vault      → http://localhost:8200 (token=root)"
+        echo "  Consul UI  → oc port-forward -n consul svc/consul-ui 8500:80"
+        echo "  OpenShift  → https://console-openshift-console.apps-crc.testing"
+      - echo ""
+      - echo "Features:"
+      - echo "  ✅ Consul Connect (mTLS)"
+      - echo "  ✅ SPIFFE identities"
+      - echo "  ✅ Vault Secrets Operator"
+      - echo "  ✅ Service Intentions"
 
   demo:
-    desc: Full first-time experience (setup → ingest → up → walkthrough)
+    desc: Alias for demo:docker
     cmds:
-      - task: setup
-      - task: ingest
-      - task: up
-      - task: walkthrough
+      - task: demo:docker
+
+  _deploy-rag:
+    internal: true
+    cmds:
+      - echo "Deploying VSO resources..."
+      - oc project {{.RAG_NAMESPACE}}
+      - oc apply -f k8s/vault/vault-connection.yaml
+      - oc apply -f k8s/vault/vault-auth.yaml
+      - oc apply -f k8s/vault/qdrant-secret.yaml
+      - oc apply -f k8s/vault/ollama-secret.yaml
+      - sleep 10
+      - echo "Deploying Service Intentions..."
+      - oc apply -f k8s/consul/intentions.yaml
+      - echo "Deploying RAG platform..."
+      - oc apply -f k8s/base/
+      - sleep 10
+      - oc wait --for=condition=ready pod -l app=qdrant -n {{.RAG_NAMESPACE}} --timeout=180s
+      - oc wait --for=condition=ready pod -l app=ollama -n {{.RAG_NAMESPACE}} --timeout=180s
+      - echo "Running ingest..."
+      - oc create job --from=cronjob/ingest ingest-manual-$(date +%s) || oc apply -f k8s/base/ingest-job.yaml
+      - echo "Exposing UI..."
+      - oc expose svc/ui 2>/dev/null || true
+      - echo "✓ RAG platform deployed"
+
+  # ============================================================================
+  # Utility Tasks
+  # ============================================================================
 
   ask:
-    desc: Ask a question from the CLI (usage — task ask -- "your question")
+    desc: Ask a question (usage - task ask -- "your question")
     cmds:
       - ./scripts/ask.sh "{{.CLI_ARGS}}"
 
   walkthrough:
-    desc: Interactive demo — runs 3 canned queries with formatted output
+    desc: Interactive demo with sample queries
     cmds:
       - ./scripts/walkthrough.sh
 
   open:
-    desc: Open the Streamlit UI in the default browser
+    desc: Open UI in browser
     cmds:
       - open http://localhost:8501 || xdg-open http://localhost:8501 2>/dev/null
 
-  clean:
-    desc: Stop services and remove volumes
+  status:docker:
+    desc: Check Docker Compose services
+    cmds:
+      - "{{.COMPOSE}} ps"
+
+  status:ocp:
+    desc: Check OpenShift services
+    cmds:
+      - echo "CRC:"
+      - crc status
+      - echo ""
+      - echo "Consul:"
+      - oc get pods -n consul
+      - echo ""
+      - echo "Vault:"
+      - oc get pods -n {{.VAULT_NAMESPACE}}
+      - echo ""
+      - echo "VSO:"
+      - oc get pods -n vault-secrets-operator-system
+      - echo ""
+      - echo "RAG Platform (with sidecars):"
+      - oc get pods -n {{.RAG_NAMESPACE}}
+      - echo ""
+      - echo "Secrets:"
+      - oc get secrets -n {{.RAG_NAMESPACE}} | grep -E "qdrant|ollama" || echo "None"
+      - echo ""
+      - echo "Service Intentions:"
+      - oc get serviceintentions -n {{.RAG_NAMESPACE}} 2>/dev/null || echo "None"
+      - echo ""
+      - echo "Routes:"
+      - oc get routes -n {{.RAG_NAMESPACE}}
+
+  status:
+    desc: Alias for status:docker
+    cmds:
+      - task: status:docker
+
+  logs:docker:
+    desc: View Docker logs (usage - task logs:docker -- <service>)
+    cmds:
+      - "{{.COMPOSE}} logs -f {{.CLI_ARGS}}"
+
+  logs:ocp:
+    desc: View OpenShift logs (usage - task logs:ocp -- <service>)
+    cmds:
+      - |
+        SERVICE={{.CLI_ARGS}}
+        if [ -z "$SERVICE" ]; then
+          echo "Usage: task logs:ocp -- <service>"
+          echo "Services: consul, vault, vso, qdrant, ollama, query-service, ui, ingest"
+          exit 1
+        fi
+        case $SERVICE in
+          consul) oc logs -f -l app=consul -n consul ;;
+          vault) oc logs -f -l app=vault -n {{.VAULT_NAMESPACE}} ;;
+          vso) oc logs -f -l app.kubernetes.io/name=vault-secrets-operator -n vault-secrets-operator-system ;;
+          *) oc logs -f -l app=$SERVICE -n {{.RAG_NAMESPACE}} ;;
+        esac
+
+  logs:
+    desc: Alias for logs:docker
+    cmds:
+      - task: logs:docker
+
+  clean:docker:
+    desc: Stop and remove Docker containers
     cmds:
       - "{{.COMPOSE}} down -v"
-      - echo "✓ Volumes removed"
+      - echo "✓ Docker cleanup complete"
 
-  help:
-    desc: Show available tasks
+  clean:ocp:
+    desc: Remove OpenShift resources
     cmds:
-      - task --list
+      - echo "Cleaning up..."
+      - oc delete project {{.RAG_NAMESPACE}} --wait=false 2>/dev/null || true
+      - helm uninstall consul -n consul 2>/dev/null || true
+      - oc delete project consul --wait=false 2>/dev/null || true
+      - oc delete project {{.VAULT_NAMESPACE}} --wait=false 2>/dev/null || true
+      - helm uninstall vault-secrets-operator -n vault-secrets-operator-system 2>/dev/null || true
+      - oc delete project vault-secrets-operator-system --wait=false 2>/dev/null || true
+      - pkill -f "port-forward.*vault" || true
+      - echo "✓ OpenShift cleanup complete"
+
+  clean:
+    desc: Alias for clean:docker
+    cmds:
+      - task: clean:docker
+
+  stop:ocp:
+    desc: Stop CRC
+    cmds:
+      - crc stop
+      - echo "✓ CRC stopped"
+
+  delete:ocp:
+    desc: Delete CRC (removes all data)
+    cmds:
+      - crc delete
+      - echo "✓ CRC deleted"
