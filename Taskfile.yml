@@ -263,20 +263,6 @@ tasks:
         helm repo add hashicorp https://helm.releases.hashicorp.com 2>/dev/null || true
         helm repo update
       - |
-        # OCP pre-installs Gateway API CRDs without Helm ownership labels.
-        # Stamp each one so Helm can adopt them instead of failing.
-        oc create namespace consul 2>/dev/null || true
-        for crd in $(oc get crd --no-headers -o custom-columns=NAME:.metadata.name 2>/dev/null | grep 'gateway.networking.k8s.io'); do
-          echo "  Stamping CRD: $crd"
-          oc annotate crd "$crd" \
-            meta.helm.sh/release-name=consul \
-            meta.helm.sh/release-namespace=consul \
-            --overwrite
-          oc label crd "$crd" \
-            app.kubernetes.io/managed-by=Helm \
-            --overwrite
-        done
-      - |
         helm upgrade --install consul hashicorp/consul \
           --namespace consul \
           --create-namespace \

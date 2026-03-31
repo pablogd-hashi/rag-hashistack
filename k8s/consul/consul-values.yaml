@@ -1,29 +1,20 @@
-# Consul Helm values for OpenShift deployment
-# Consul Connect service mesh with SPIFFE identities issued by Vault PKI.
-# Vault is the CA — see scripts/configure-vault.sh for the PKI setup.
-
 global:
-  name: consul
-  datacenter: dc1
-
-  # Required for OpenShift — lets OCP assign UIDs/groups via SCCs
-  # instead of the chart enforcing runAsUser/fsGroup values.
   openshift:
     enabled: true
 
-  # Gossip/RPC TLS between Consul agents
+  imagePullPolicy: IfNotPresent
+
+  # docker.io prefix required — without it OCP redirects to registry.connect.redhat.com
+  image: "docker.io/hashicorp/consul:1.22.5"
+  imageK8S: "docker.io/hashicorp/consul-k8s-control-plane:1.9.5"
+  imageConsulDataplane: "docker.io/hashicorp/consul-dataplane:1.9.5"
+
   tls:
     enabled: true
-    enableAutoEncrypt: true
+    verify: false
 
-  # ACLs protect the Consul API
-  acls:
-    manageSystemACLs: true
-
-  # Connect CA backed by Vault PKI.
-  # This is what the blog means by "SPIFFE-issued certificates
-  # from Vault's PKI engine" — Consul's Envoy sidecars present
-  # SVIDs that Vault PKI signed, not Consul's built-in CA.
+  # Vault PKI as the Connect CA — all SPIFFE SVIDs are signed by Vault,
+  # not Consul's built-in CA. See scripts/configure-vault.sh for setup.
   connectCA:
     provider: "vault"
     vaultConfig:
@@ -32,69 +23,16 @@ global:
       rootPKIPath: "connect_root"
       intermediatePKIPath: "connect_inter"
 
-  metrics:
-    enabled: true
-    enableAgentMetrics: true
-
-# Consul server — single replica for CRC
 server:
-  replicas: 1
-  storage: 10Gi
-  storageClass: null
-  resources:
-    requests:
-      memory: "512Mi"
-      cpu: "250m"
-    limits:
-      memory: "1Gi"
-      cpu: "500m"
+  storageClass: ""
 
-# Consul client daemonset
-client:
-  enabled: true
-  resources:
-    requests:
-      memory: "256Mi"
-      cpu: "100m"
-    limits:
-      memory: "512Mi"
-      cpu: "250m"
-
-# Connect sidecar injection — opt-in per pod via annotation
 connectInject:
   enabled: true
-  default: false
-  resources:
-    requests:
-      memory: "128Mi"
-      cpu: "50m"
-    limits:
-      memory: "256Mi"
-      cpu: "100m"
-  metrics:
-    defaultEnabled: true
-    defaultEnableMerging: true
-  # Disable API Gateway management — we don't use it and OCP
-  # pre-installs Gateway API CRDs that Helm can't adopt.
   apiGateway:
     managedGatewayClass:
-      enabled: false
+      enabled: true
+      serviceType: ClusterIP
 
-# Consul UI
 ui:
-  enabled: true
   service:
     type: ClusterIP
-
-# Sync Kubernetes services into Consul catalog
-syncCatalog:
-  enabled: true
-  default: true
-  toConsul: true
-  toK8S: false
-  k8sAllowNamespaces: ["rag-platform"]
-
-# DNS redirection so services can resolve .consul names
-dns:
-  enabled: true
-  enableRedirection: true
