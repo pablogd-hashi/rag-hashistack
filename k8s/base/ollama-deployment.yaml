@@ -51,7 +51,6 @@ spec:
     spec:
       securityContext:
         runAsNonRoot: true
-        hostUsers: false
         seccompProfile:
           type: RuntimeDefault
       initContainers:
@@ -82,8 +81,8 @@ spec:
           readOnlyRootFilesystem: false
         resources:
           requests:
-            memory: "2Gi"
-            cpu: "1000m"
+            memory: "512Mi"
+            cpu: "500m"
           limits:
             memory: "4Gi"
             cpu: "2000m"
@@ -117,10 +116,10 @@ spec:
           periodSeconds: 10
         resources:
           requests:
-            memory: "4Gi"
-            cpu: "1000m"
+            memory: "1Gi"
+            cpu: "500m"
           limits:
-            memory: "8Gi"
+            memory: "6Gi"
             cpu: "4000m"
         securityContext:
           allowPrivilegeEscalation: false

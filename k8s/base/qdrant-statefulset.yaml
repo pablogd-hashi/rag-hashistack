@@ -44,7 +44,6 @@ spec:
     spec:
       securityContext:
         runAsNonRoot: true
-        hostUsers: false
         seccompProfile:
           type: RuntimeDefault
       containers:
@@ -73,7 +72,7 @@ spec:
           periodSeconds: 10
         resources:
           requests:
-            memory: "512Mi"
+            memory: "256Mi"
             cpu: "250m"
           limits:
             memory: "2Gi"

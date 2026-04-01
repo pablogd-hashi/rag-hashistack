@@ -40,7 +40,6 @@ spec:
     spec:
       securityContext:
         runAsNonRoot: true
-        hostUsers: false
         seccompProfile:
           type: RuntimeDefault
       containers:

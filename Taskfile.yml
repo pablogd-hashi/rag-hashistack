@@ -278,6 +278,7 @@ tasks:
       - echo "Preparing Consul namespace and permissions..."
       - oc create namespace consul --dry-run=client -o yaml | oc apply -f -
       - oc adm policy add-scc-to-group anyuid system:serviceaccounts:consul
+      - oc adm policy add-scc-to-group privileged system:serviceaccounts:{{.RAG_NAMESPACE}}
       - |
         if oc get secret consul-gossip-key -n consul &>/dev/null; then
           echo "  Gossip key already exists — skipping"
@@ -328,9 +329,8 @@ tasks:
       - task: _populate-docs
       - echo "Deploying RAG platform..."
       - oc apply -f k8s/base/
-      - sleep 10
-      - oc wait --for=condition=ready pod -l app=qdrant -n {{.RAG_NAMESPACE}} --timeout=300s
-      - oc wait --for=condition=ready pod -l app=ollama -n {{.RAG_NAMESPACE}} --timeout=600s
+      - oc rollout status statefulset/qdrant -n {{.RAG_NAMESPACE}} --timeout=300s
+      - oc rollout status deployment/ollama -n {{.RAG_NAMESPACE}} --timeout=600s
       - echo "Running ingest..."
       - oc delete job ingest -n {{.RAG_NAMESPACE}} --ignore-not-found
       - oc apply -f k8s/base/ingest-job.yaml
@@ -346,10 +346,10 @@ tasks:
       - |
         set -e
         CM_ARGS=""
-        while IFS= read -r -d '' f; do
+        for f in $(find docs/ -type f \( -name "*.md" -o -name "*.yaml" -o -name "*.tf" \) 2>/dev/null); do
           key=$(echo "$f" | sed 's|docs/||;s|/|_|g')
           CM_ARGS="$CM_ARGS --from-file=${key}=${f}"
-        done < <(find docs/ -type f \( -name "*.md" -o -name "*.yaml" -o -name "*.tf" \) -print0 2>/dev/null)
+        done
         if [ -n "$CM_ARGS" ]; then
           eval "oc create configmap platform-docs $CM_ARGS -n {{.RAG_NAMESPACE}} --dry-run=client -o yaml" | oc apply -f -
           echo "✓ Loaded $(find docs/ -type f \( -name "*.md" -o -name "*.yaml" -o -name "*.tf" \) | wc -l | tr -d ' ') documents"
