@@ -2,6 +2,7 @@
 
 A RAG platform that answers natural-language questions about platform engineering docs — runbooks, Vault policies, architecture docs. The model only reasons over documents you index.
 
+You can read the blog here: ![https://medium.com/@pablogd/designing-a-rag-platform-in-openshift-35df0937684c?postPublishedType=repub]
 ---
 
 ## How it works
@@ -10,11 +11,7 @@ A RAG platform that answers natural-language questions about platform engineerin
 
 **Query** embeds your question the same way, finds the nearest chunks, and passes them to `phi3` as context to generate a grounded answer.
 
-```
-docs/ ──► embed ──► Qdrant
-                       │
-     question ──► embed ──► search ──► phi3 ──► answer
-```
+![Architecture](images/Architecture_flow.png)
 
 ---
 
@@ -111,6 +108,10 @@ What is the difference between connect_root and connect_inter?
 How does Consul authenticate to Vault to sign certificates?
 How do Service Intentions enforce deny-by-default between services?
 ```
+
+## Example Output
+
+![StreamLit UI](images/Streamlit_ui.png)
 
 ---
 
