@@ -66,6 +66,8 @@ spec:
           ollama pull phi3
           pkill ollama
         env:
+        - name: HOME
+          value: "/models"
         - name: OLLAMA_MODELS
           value: "/models"
         - name: OLLAMA_HOST
@@ -95,6 +97,8 @@ spec:
           containerPort: 11434
           protocol: TCP
         env:
+        - name: HOME
+          value: "/models"
         - name: OLLAMA_HOST
           value: "0.0.0.0:11434"
         - name: OLLAMA_MODELS
