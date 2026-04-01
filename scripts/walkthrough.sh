@@ -32,6 +32,48 @@ for i in $(seq 1 30); do
 done
 echo ""
 
+# ── SPIFFE identities ────────────────────────────────────────────────────
+banner "Service Mesh — SPIFFE Identities (Vault PKI)"
+
+CONSUL_URL="${CONSUL_URL:-http://localhost:8500}"
+
+# Show the Connect CA provider
+CA_PROVIDER=$(curl -s "${CONSUL_URL}/v1/connect/ca/configuration" 2>/dev/null | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('Provider','unknown'))" 2>/dev/null || echo "unknown")
+echo -e "  Connect CA  →  ${GREEN}Vault PKI${RESET} (connect_root / connect_inter)"
+echo -e "  Provider reported by Consul: ${BOLD}${CA_PROVIDER}${RESET}"
+echo ""
+
+# Show root CA issuer to prove it's Vault-backed
+ROOT_CERT=$(curl -s "${CONSUL_URL}/v1/connect/ca/roots" 2>/dev/null \
+  | python3 -c "import sys,json; r=json.load(sys.stdin); print(r['Roots'][0]['RootCert'])" 2>/dev/null || echo "")
+if [ -n "$ROOT_CERT" ]; then
+  ROOT_ISSUER=$(echo "$ROOT_CERT" | openssl x509 -noout -issuer 2>/dev/null | sed 's/issuer= *//')
+  ROOT_SERIAL=$(echo "$ROOT_CERT" | openssl x509 -noout -serial 2>/dev/null | sed 's/serial=//')
+  echo -e "  ${DIM}Root CA:  ${ROOT_ISSUER}${RESET}"
+  echo -e "  ${DIM}Serial:   ${ROOT_SERIAL}${RESET}"
+  echo ""
+fi
+
+# Issue and display a leaf cert for each service
+echo -e "  ${BOLD}Leaf SVIDs issued by Vault connect_inter:${RESET}"
+echo ""
+for SVC in qdrant query-service ui; do
+  LEAF=$(curl -s "${CONSUL_URL}/v1/agent/connect/ca/leaf/${SVC}" 2>/dev/null)
+  CERT_PEM=$(echo "$LEAF" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('CertPEM',''))" 2>/dev/null || echo "")
+  if [ -n "$CERT_PEM" ]; then
+    SPIFFE=$(echo "$CERT_PEM" | openssl x509 -text -noout 2>/dev/null \
+      | grep "URI:" | head -1 | sed 's/.*URI://' | tr -d ' ')
+    EXPIRY=$(echo "$CERT_PEM" | openssl x509 -noout -enddate 2>/dev/null | sed 's/notAfter=//')
+    ISSUER=$(echo "$CERT_PEM" | openssl x509 -noout -issuer 2>/dev/null | sed 's/issuer= *//')
+    printf "  ${GREEN}%-16s${RESET}  %s\n" "${SVC}" "${SPIFFE}"
+    printf "  ${DIM}%-16s  expires: %s${RESET}\n" "" "${EXPIRY}"
+    printf "  ${DIM}%-16s  issuer:  %s${RESET}\n" "" "${ISSUER}"
+    echo ""
+  else
+    printf "  ${DIM}%-16s  (not yet issued)${RESET}\n\n" "${SVC}"
+  fi
+done
+
 banner "RAG Platform — Interactive Demo"
 
 echo -e "  Indexed documents:"

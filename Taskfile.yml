@@ -39,14 +39,18 @@ tasks:
     desc: Pull models, ingest docs, open UI, interactive Q&A
     cmds:
       - task: _setup-docker
-      - echo "Ingesting documents..."
+      - echo "Starting infrastructure (Vault + Consul + Qdrant)..."
+      - "{{.COMPOSE}} up -d vault consul qdrant"
+      - echo "Ingesting documents (waits for Qdrant to be healthy)..."
       - "{{.COMPOSE}} run --rm ingest"
-      - echo "Starting services..."
-      - "{{.COMPOSE}} up -d qdrant query-service ui"
-      - sleep 3
+      - echo "Starting platform (bootstrap wires Vault PKI -> Consul CA, then services start)..."
+      - "{{.COMPOSE}} up -d"
+      - sleep 5
       - echo ""
       - echo "  UI        → http://localhost:8501"
       - echo "  Query API → http://localhost:8000/docs"
+      - 'echo "  Vault UI  -> http://localhost:8200  (token: root)"'
+      - 'echo "  Consul UI -> http://localhost:8500"'
       - echo ""
       - open http://localhost:8501 2>/dev/null || true
       - ./scripts/walkthrough.sh
@@ -105,7 +109,8 @@ tasks:
   clean:
     desc: Stop containers and remove volumes
     cmds:
-      - "{{.COMPOSE}} down -v"
+      - "{{.COMPOSE}} down -v --remove-orphans"
+      - docker rm -f vault consul bootstrap qdrant-sidecar query-service-sidecar ui-sidecar 2>/dev/null || true
       - echo "✓ Done"
 
   # ── OpenShift ───────────────────────────────────────────────────────────

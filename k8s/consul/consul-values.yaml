@@ -5,10 +5,6 @@ global:
   imagePullPolicy: IfNotPresent
 
   # docker.io prefix required — without it OCP redirects to registry.connect.redhat.com
-  image: "docker.io/hashicorp/consul:1.22.5"
-  imageK8S: "docker.io/hashicorp/consul-k8s-control-plane:1.9.5"
-  imageConsulDataplane: "docker.io/hashicorp/consul-dataplane:1.9.5"
-
   tls:
     enabled: true
     verify: false
@@ -23,11 +19,7 @@ global:
       rootPKIPath: "connect_root"
       intermediatePKIPath: "connect_inter"
 
-server:
-  storageClass: ""
-
 connectInject:
-  enabled: true
   apiGateway:
     managedGatewayClass:
       enabled: true
