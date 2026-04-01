@@ -2,8 +2,7 @@
 
 A RAG platform that answers natural-language questions about platform engineering docs — runbooks, Vault policies, architecture docs. The model only reasons over documents you index.
 
-You can read the blog here: [Blog post](https://medium.com/@pablogd/designing-a-rag-platform-in-openshift-35df0937684c?postPublishedType=repub)
----
+Blog available here:[Blog post](https://medium.com/@pablogd/designing-a-rag-platform-in-openshift-35df0937684c?postPublishedType=repub)
 
 ## How it works
 
